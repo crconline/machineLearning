@@ -1,0 +1,212 @@
+---
+title: "Assessing the *Quantified Self Movement* with Machine Learning"
+author: "Carlos Rodriguez-Contreras"
+date: "November 20, 2015"
+output: html_document
+---
+
+------
+
+# Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the *Quantified Self Movement* – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from this website: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+------
+
+## Loading all packages needed for the project:
+
+```{r packages, message=FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(knitr)
+```
+
+------
+
+## Getting and Processing the Data
+
+The training data for this project are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+And the test data for this project are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+
+
+```{r retrieveData}
+# Retrieving the data files from the internet:
+set.seed(12345)
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+-----
+
+Once retrieved, we partition the training dataset into training and testing partitions:
+
+```{r partitions}
+# Partitioning the training dataset:
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+dim(myTraining)
+dim(myTesting)
+```
+
+-------
+
+## Looking at **myTraining** dataset
+
+Below it is displayed few of the first rows of **myTraining** dataset which consists of *11776* observations with *160* variables each:
+
+```{r displayData}
+# First six observations of the myTraining dataset
+head(myTraining)
+```
+
+
+------
+
+## Getting a tidy dataset
+
+The next step consists in removing the Near Zero Values because they do not contribute to the prediction model. Then variables with more than 60% of missing values are cleaned. The 160 variables are reduced to 58, being **classe** the 58th variable:
+
+```{r tidyData}
+# Removing near zero values
+nzv <- nearZeroVar(myTraining, saveMetrics=TRUE)
+myTraining <- myTraining[,nzv$nzv==FALSE]
+nzv<- nearZeroVar(myTesting,saveMetrics=TRUE)
+myTesting <- myTesting[,nzv$nzv==FALSE]
+
+# Removing the first column
+myTraining <- myTraining[c(-1)]
+
+# Cleaning missing values
+
+trainingMV <- myTraining
+for(i in 1:length(myTraining)) {
+    if( sum( is.na( myTraining[, i] ) ) /nrow(myTraining) >= .7) {
+        for(j in 1:length(trainingMV)) {
+            if( length( grep(names(myTraining[i]), names(trainingMV)[j]) ) == 1)  {
+                trainingMV <- trainingMV[ , -j]
+            }   
+        } 
+    }
+}
+
+# Set back the dataset name
+myTraining <- trainingMV
+# classe variable is no more the 160th but the 58th
+names(myTraining)[58]
+```
+
+------
+
+## Transforming the Test datasets
+
+Both, myTesting and testing datasets are transformed to be compatible with myTraining dataset:
+
+```{r tranfTest}
+cleanAll <- colnames(myTraining)
+# removing the classe variable (The output)
+cleanOUT <- colnames(myTraining[, -58])
+# Fixing myTesting dataset to be compatible with myTraining dataset
+myTesting <- myTesting[cleanAll]
+# Fixing testing dataset to be compatible with myTraining dataset
+testing <- testing[cleanOUT]
+dim(myTesting)
+dim(testing)
+```
+
+------
+
+Final step consists in coercing the datasets for them to be compatible:
+
+```{r coercing}
+for (i in 1:length(testing) ) {
+    for(j in 1:length(myTraining)) {
+        if( length( grep(names(myTraining[i]), names(testing)[j]) ) == 1)  {
+            class(testing[j]) <- class(myTraining[i])
+        }      
+    }      
+}
+testing <- rbind(myTraining[2, -58] , testing)
+testing <- testing[-1,]
+```
+
+-----
+
+# Prediction with Decision Trees
+
+```{r decTree}
+set.seed(12345)
+modelFitDT <- rpart(classe ~ ., data = myTraining, method = "class")
+# Creating a Decision Tree Diagram with rattle package
+fancyRpartPlot(modelFitDT)
+```
+
+-----
+
+Assessing accuracy of the Decision Tree model:
+
+```{r assessDT}
+predictionsDT <- predict(modelFitDT, myTesting, type = "class")
+cmDT <- confusionMatrix(predictionsDT, myTesting$classe)
+cmDT
+```
+
+As noticed, accuracy of the Decision Tree model is `r as.numeric(cmDT$overall[1])` which certainly is high but let us proof another prediction model.
+
+------
+
+# Prediction with Random Forests
+```{r randForest}
+set.seed(12345)
+modelFitRF <- randomForest(classe ~ ., data=myTraining)
+predictionRF <- predict(modelFitRF, myTesting, type = "class")
+# Creating a graphic for the Random Forest
+plot(modelFitRF, main="Prediction with Random Forest")
+```
+
+-----
+
+Assessing acuracy of the Random Forest model:
+
+```{r assessRF}
+cmRF <- confusionMatrix(predictionRF, myTesting$classe)
+cmRF
+```
+
+As noticed, accuracy of the Random Forest model is `r as.numeric(cmRF$overall[1])` which is much more better than the accuracy of the Decision Tree model. So, the model of prediction with Random Forest is the one chose to make prediction with the testing dataset.
+
+-----
+
+# Making Predictions on the Test Dataset
+
+```{r testingTestData}
+predictionFinal <- predict(modelFitRF, testing, type = "class")
+predictionFinal
+```
+
+-----
+
+# Function to generate text files for submission:
+
+```{r sumission}
+# Write the results to text files for submission
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+# pml_write_files(predictionFinal)
+```
+
+
