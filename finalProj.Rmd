@@ -2,7 +2,9 @@
 title: "Assessing the *Quantified Self Movement* with Machine Learning"
 author: "Carlos Rodriguez-Contreras"
 date: "November 20, 2015"
-output: html_document
+output: 
+  html_document: 
+    keep_md: yes
 ---
 
 ------
